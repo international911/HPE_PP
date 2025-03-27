@@ -3,9 +3,14 @@ import json
 from ultralytics import YOLO
 import mediapipe as mp
 
-def load_yolo_model(model_path):
-    model = YOLO(model_path)
-    return model
+def load_yolo_model(model_name='yolo11n.pt'):
+    try:
+        model = YOLO(model_name)
+        print("Модель загружена.")
+        return model
+    except Exception as e:
+        print(f"Ошибка: {e}")
+        return None
 
 def setup_mediapipe():
     mp_pose = mp.solutions.pose
