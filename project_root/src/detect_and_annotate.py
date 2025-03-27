@@ -3,9 +3,9 @@ import json
 from ultralytics import YOLO
 import mediapipe as mp
 
-def load_yolo_model(model_name='yolo11n.pt'):
+def load_yolo_model(model_path='yolo11n.pt'):
     try:
-        model = YOLO(model_name)
+        model = YOLO(model_path)
         print("Модель загружена.")
         return model
     except Exception as e:
@@ -17,8 +17,12 @@ def setup_mediapipe():
     pose = mp_pose.Pose(static_image_mode=True, min_detection_confidence=0.5)
     return pose
 
+def normalize_coordinates(x, y, width, height):
+    return x / width, y / height
+
 def detect_and_annotate(image_path, yolo_model, pose):
     image = cv2.imread(image_path)
+    height, width = image.shape[:2]
     results = yolo_model(image)
 
     annotations = []
@@ -35,7 +39,8 @@ def detect_and_annotate(image_path, yolo_model, pose):
                 for landmark in pose_results.pose_landmarks.landmark:
                     x = int(landmark.x * (x2 - x1)) + x1
                     y = int(landmark.y * (y2 - y1)) + y1
-                    keypoints.append({"x": x, "y": y})
+                    x_norm, y_norm = normalize_coordinates(x, y, width, height)
+                    keypoints.append({"x": x, "y": y, "x_norm": x_norm, "y_norm": y_norm})
                 annotations.append(keypoints)
 
     return annotations
