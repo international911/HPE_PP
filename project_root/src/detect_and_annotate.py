@@ -37,10 +37,4 @@ def detect_and_annotate(image_path, yolo_model, pose):
 
 def save_annotations(annotations, output_path):
     with open(output_path, 'w') as f:
-        json.dump(annotations, f)
-
-yolo_model = load_yolo_model('../models/yolov11.pt')
-pose = setup_mediapipe()
-image_path = '../data/images/person_1.jpg'
-annotations = detect_and_annotate(image_path, yolo_model, pose)
-save_annotations(annotations, '../data/keypoints.json')
+        json.dump(annotations, f, indent=4)
