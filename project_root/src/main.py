@@ -9,7 +9,7 @@ def main(directory):
         return
 
     # Загрузка модели YOLO
-    yolo_model = load_yolo_model('yolov11n.pt')
+    yolo_model = load_yolo_model('yolo11n.pt')
 
     # Настройка MediaPipe
     pose = setup_mediapipe()

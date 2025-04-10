@@ -4,7 +4,7 @@ import numpy as np
 from ultralytics import YOLO
 import mediapipe as mp
 
-def load_yolo_model(model_path='yolov11n.pt'):
+def load_yolo_model(model_path='yolo11n.pt'):
     model = YOLO(model_path)
     return model
 
