@@ -1,21 +1,34 @@
 import os
-from src.detect_and_annotate import load_yolo_model, setup_mediapipe, detect_and_annotate, save_annotations
+import pandas as pd
+from src.detect_and_annotate import load_yolo_model, setup_mediapipe, process_images_in_directory, save_annotations_to_csv
+from src.cnn_model import train_cnn_model
 
-def main():
-    yolo_model = load_yolo_model('yolo11n.pt')
+def main(directory):
+    if not os.path.exists(directory):
+        print(f"Директория {directory} не существует.")
+        return
+
+    # Загрузка модели YOLO
+    yolo_model = load_yolo_model('yolov11n.pt')
+
+    # Настройка MediaPipe
     pose = setup_mediapipe()
-    images_folder = 'data/images'
-    all_annotations = {}
-    for filename in os.listdir(images_folder):
-        if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
-            image_path = os.path.join(images_folder, filename)
-            print(f"Обработка изображения: {image_path}")
-            annotations = detect_and_annotate(image_path, yolo_model, pose)
-            all_annotations[filename] = annotations
 
-    output_path = 'data/keypoints.json'
-    save_annotations(all_annotations, output_path)
-    print(f"Кейпоинты сохранены {output_path}")
+    annotations = process_images_in_directory(directory, yolo_model, pose)
+
+    output_path = 'data/keypoints.csv'
+    save_annotations_to_csv(annotations, output_path)
+    print(f"Кейпоинты сохранены в {output_path}")
+
+    if os.path.exists(output_path):
+        data = pd.read_csv(output_path)
+        print("Первые несколько строк CSV файла:")
+        print(data.head())
+    else:
+        print(f"Файл {output_path} не найден.")
+
+    # Обучение CNN-модели
+    train_cnn_model(output_path)
 
 if __name__ == "__main__":
-    main()
+    main('data/images')
