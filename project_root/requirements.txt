@@ -2,3 +2,7 @@ ultralytics
 mediapipe
 opencv-python
 pyyaml
+bing-image-downloader
+Pillow
+imagehash
+numpy

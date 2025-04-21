@@ -59,6 +59,3 @@ Dockerfile.*
 .github/
 .gitlab-ci.yml
 .circleci/
-
-# Игнорировать папку с датасетом
-data/
