@@ -1,87 +1,100 @@
+import os
+import csv
+import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset, random_split
+from torch.utils.data import Dataset, DataLoader, random_split
 from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
 
-class SimpleCNN(nn.Module):
-    def __init__(self, num_classes):
-        super(SimpleCNN, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
-        self.fc1 = nn.Linear(64 * 7 * 7, 128)
-        self.fc2 = nn.Linear(128, num_classes)
+class PoseDataset(Dataset):
+    def __init__(self, csv_paths):
+        self.data = []
+        self.labels = []
+        self.encoder = LabelEncoder()
+        
+        # Загружаем данные из всех CSV файлов
+        for csv_path in csv_paths:
+            df = pd.read_csv(csv_path)
+            class_name = os.path.basename(os.path.dirname(csv_path))
+            
+            # Группируем по изображениям
+            grouped = df.groupby('image_path')
+            for img_path, group in grouped:
+                keypoints = {}
+                for _, row in group.iterrows():
+                    keypoints[row['landmark']] = [row['x_norm'], row['y_norm']]
+                
+                # Сортируем ключевые точки по имени и объединяем в вектор
+                sorted_keys = sorted(keypoints.keys())
+                features = []
+                for key in sorted_keys:
+                    features.extend(keypoints[key])
+                
+                self.data.append(features)
+                self.labels.append(class_name)
+        
+        # Кодируем метки классов
+        self.labels = self.encoder.fit_transform(self.labels)
+    
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        features = torch.FloatTensor(self.data[idx])
+        label = torch.LongTensor([self.labels[idx]])
+        return features, label
 
+class PoseClassifier(nn.Module):
+    def __init__(self, input_size, num_classes):
+        super(PoseClassifier, self).__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(input_size, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, num_classes)
+        )
+    
     def forward(self, x):
-        x = torch.relu(self.conv1(x))
-        x = torch.max_pool2d(x, 2)
-        x = torch.relu(self.conv2(x))
-        x = torch.max_pool2d(x, 2)
-        x = x.view(-1, 64 * 7 * 7)
-        x = torch.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
+        return self.fc(x)
 
-def train_cnn_model(annotations_path):
-    # Загрузка данных
-    data = pd.read_csv(annotations_path)
-
-    # Преобразование данных
-    X = data[['x_norm', 'y_norm']].values.reshape(-1, 1, 2)
-    y = data['class']
-
-    # Кодирование меток классов
-    encoder = LabelEncoder()
-    y_encoded = encoder.fit_transform(y)
-
-    # Преобразование данных в тензоры
-    X_tensor = torch.tensor(X, dtype=torch.float32)
-    y_tensor = torch.tensor(y_encoded, dtype=torch.long)
-
-    # Разделение данных на обучающую и тестовую выборки
-    dataset = TensorDataset(X_tensor, y_tensor)
+def train_model(csv_paths, model_save_path='models/pose_classifier.pth'):
+    # Создаем dataset и dataloaders
+    dataset = PoseDataset(csv_paths)
     train_size = int(0.8 * len(dataset))
     test_size = len(dataset) - train_size
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
-
+    
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
-
-    # Создание модели
-    num_classes = len(encoder.classes_)
-    model = SimpleCNN(num_classes)
-
-    # Определение функции потерь и оптимизатора
+    
+    # Инициализируем модель
+    input_size = len(dataset[0][0])
+    num_classes = len(dataset.encoder.classes_)
+    model = PoseClassifier(input_size, num_classes)
+    
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-    # Обучение модели
-    num_epochs = 10
-    for epoch in range(num_epochs):
+    
+    # Обучение
+    for epoch in range(20):
         model.train()
-        for X_batch, y_batch in train_loader:
+        for features, labels in train_loader:
             optimizer.zero_grad()
-            outputs = model(X_batch)
-            loss = criterion(outputs, y_batch)
+            outputs = model(features)
+            loss = criterion(outputs, labels.squeeze())
             loss.backward()
             optimizer.step()
-
-        print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}')
-
-    # Оценка модели
-    model.eval()
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for X_batch, y_batch in test_loader:
-            outputs = model(X_batch)
-            _, predicted = torch.max(outputs.data, 1)
-            total += y_batch.size(0)
-            correct += (predicted == y_batch).sum().item()
-
-    print(f'Test Accuracy: {100 * correct / total:.2f}%')
-
-    # Сохранение модели
-    torch.save(model.state_dict(), 'models/cnn_model.pth')
-
+    
+    # Сохраняем модель
+    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'encoder_classes': dataset.encoder.classes_
+    }, model_save_path)
+    
+    return model
