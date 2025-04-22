@@ -1,10 +1,20 @@
-import cv2
 import numpy as np
+import cv2
 import json
+from pathlib import Path
 
 class SkeletonVisualizer:
-    def __init__(self, config_path="../config/skeleton_connections.json"):
-        with open(config_path) as f:
+    def __init__(self, config_path=None):
+        if config_path is None:
+            current_dir = Path(__file__).parent
+            self.config_path = current_dir.parent / "config" / "skeleton_connections.json"
+        else:
+            self.config_path = Path(config_path)
+        
+        if not self.config_path.exists():
+            raise FileNotFoundError(f"Config file not found at: {self.config_path}")
+        
+        with open(self.config_path) as f:
             self.connections = json.load(f)["connections"]
     
     def draw_2d_skeleton(self, joints, image=None):
