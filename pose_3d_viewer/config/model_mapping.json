@@ -1,0 +1,20 @@
+{
+    "kratos": {
+        "bone_mapping": {
+            "head": "Head",
+            "neck": "Neck",
+            "left_shoulder": "LeftShoulder",
+            "right_shoulder": "RightShoulder",
+            "left_elbow": "LeftArm",
+            "right_elbow": "RightArm",
+            "left_wrist": "LeftHand",
+            "right_wrist": "RightHand",
+            "hip": "Hips",
+            "left_hip": "LeftUpLeg",
+            "right_hip": "RightUpLeg",
+            "left_knee": "LeftLeg",
+            "right_knee": "RightLeg"
+        },
+        "scale": 0.01
+    }
+}

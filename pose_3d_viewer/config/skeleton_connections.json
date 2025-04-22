@@ -1,0 +1,19 @@
+{
+    "connections": [
+        ["head", "neck"],
+        ["neck", "left_shoulder"],
+        ["left_shoulder", "left_elbow"],
+        ["left_elbow", "left_wrist"],
+        ["neck", "right_shoulder"],
+        ["right_shoulder", "right_elbow"],
+        ["right_elbow", "right_wrist"],
+        ["neck", "spine"],
+        ["spine", "hip"],
+        ["hip", "left_hip"],
+        ["left_hip", "left_knee"],
+        ["left_knee", "left_ankle"],
+        ["hip", "right_hip"],
+        ["right_hip", "right_knee"],
+        ["right_knee", "right_ankle"]
+    ]
+}
