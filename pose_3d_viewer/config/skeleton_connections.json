@@ -1,19 +1,17 @@
 {
     "connections": [
-        ["head", "neck"],
-        ["neck", "left_shoulder"],
-        ["left_shoulder", "left_elbow"],
-        ["left_elbow", "left_wrist"],
-        ["neck", "right_shoulder"],
-        ["right_shoulder", "right_elbow"],
-        ["right_elbow", "right_wrist"],
-        ["neck", "spine"],
-        ["spine", "hip"],
-        ["hip", "left_hip"],
-        ["left_hip", "left_knee"],
-        ["left_knee", "left_ankle"],
-        ["hip", "right_hip"],
-        ["right_hip", "right_knee"],
-        ["right_knee", "right_ankle"]
+        ["NOSE", "LEFT_EYE_INNER"], ["LEFT_EYE_INNER", "LEFT_EYE"], 
+        ["LEFT_EYE", "LEFT_EYE_OUTER"], ["LEFT_EYE_OUTER", "LEFT_EAR"],
+        ["NOSE", "RIGHT_EYE_INNER"], ["RIGHT_EYE_INNER", "RIGHT_EYE"],
+        ["RIGHT_EYE", "RIGHT_EYE_OUTER"], ["RIGHT_EYE_OUTER", "RIGHT_EAR"],
+        ["MOUTH_LEFT", "MOUTH_RIGHT"],
+        ["LEFT_SHOULDER", "RIGHT_SHOULDER"], ["LEFT_SHOULDER", "LEFT_ELBOW"],
+        ["LEFT_ELBOW", "LEFT_WRIST"], ["RIGHT_SHOULDER", "RIGHT_ELBOW"],
+        ["RIGHT_ELBOW", "RIGHT_WRIST"], ["LEFT_SHOULDER", "LEFT_HIP"],
+        ["RIGHT_SHOULDER", "RIGHT_HIP"], ["LEFT_HIP", "RIGHT_HIP"],
+        ["LEFT_HIP", "LEFT_KNEE"], ["LEFT_KNEE", "LEFT_ANKLE"],
+        ["RIGHT_HIP", "RIGHT_KNEE"], ["RIGHT_KNEE", "RIGHT_ANKLE"],
+        ["LEFT_ANKLE", "LEFT_HEEL"], ["LEFT_HEEL", "LEFT_FOOT_INDEX"],
+        ["RIGHT_ANKLE", "RIGHT_HEEL"], ["RIGHT_HEEL", "RIGHT_FOOT_INDEX"]
     ]
 }
