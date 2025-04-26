@@ -52,10 +52,7 @@ class PoseProcessor:
         diag2 = np.hypot(rs.x - lb.x, rs.y - lb.y)
         return max((diag1 + diag2) / 2, 0.01)
 
-    def _normalize_keypoints(self, landmarks):
-        center_x, center_y = self._calculate_body_center(landmarks)
-        unit_length = self._calculate_unit_length(landmarks)
-
+    def _normalize_keypoints(self, landmarks, center_x, center_y, unit_length):
         normalized = {}
         for name in self.landmark_names:
             idx = getattr(self.mp_pose.PoseLandmark, name).value
@@ -69,7 +66,6 @@ class PoseProcessor:
                 'visibility': landmark.visibility
             }
 
-        # Проверка обязательных точек
         for name in self.required_landmarks:
             if name not in normalized:
                 return None
@@ -95,12 +91,18 @@ class PoseProcessor:
                 pose_results = self.pose.process(cropped_rgb)
 
                 if pose_results.pose_landmarks:
-                    keypoints = self._normalize_keypoints(pose_results.pose_landmarks.landmark)
+                    center_x, center_y = self._calculate_body_center(pose_results.pose_landmarks.landmark)
+                    unit_length = self._calculate_unit_length(pose_results.pose_landmarks.landmark)
+                    keypoints = self._normalize_keypoints(pose_results.pose_landmarks.landmark, center_x, center_y, unit_length)
+
                     if keypoints:
                         keypoints_data.append({
                             'image_path': image_path,
                             'bbox': [x1, y1, x2, y2],
-                            'keypoints': keypoints
+                            'keypoints': keypoints,
+                            'center_x': center_x,
+                            'center_y': center_y,
+                            'unit_length': unit_length
                         })
         return keypoints_data
 
@@ -109,7 +111,7 @@ class PoseProcessor:
 
         with open(output_csv, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
-            writer.writerow(['image_path', 'bbox', 'landmark', 'x_norm', 'y_norm', 'visibility', 'class'])
+            writer.writerow(['image_path', 'bbox', 'landmark', 'x_norm', 'y_norm', 'visibility', 'class', 'center_x', 'center_y', 'unit_length'])
 
             class_name = os.path.basename(class_dir)
             image_files = [f for f in os.listdir(class_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
@@ -128,5 +130,8 @@ class PoseProcessor:
                                 coords['x_norm'],
                                 coords['y_norm'],
                                 coords['visibility'],
-                                class_name
+                                class_name,
+                                result['center_x'],
+                                result['center_y'],
+                                result['unit_length']
                             ])
