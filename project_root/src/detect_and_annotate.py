@@ -2,9 +2,20 @@ import os
 import csv
 import cv2
 import numpy as np
+from pathlib import Path
+from dataclasses import dataclass
 from ultralytics import YOLO
 import mediapipe as mp
 from tqdm import tqdm
+
+@dataclass
+class PoseResult:
+    image_path: str
+    bbox: list
+    keypoints: dict
+    center_x: float
+    center_y: float
+    unit_length: float
 
 class PoseProcessor:
     def __init__(self, yolo_model_path='yolo11n.pt'):
@@ -72,66 +83,86 @@ class PoseProcessor:
 
         return normalized
 
-    def process_image(self, image_path):
-        image = cv2.imread(image_path)
-        if image is None:
-            return None
+    def _extract_pose_data(self, detection, image, image_path):
+        pose_data = []
+        boxes = detection.boxes.xyxy.cpu().numpy()
 
-        results = self.yolo(image)
+        for box in boxes:
+            x1, y1, x2, y2 = map(int, box)
+            cropped = image[y1:y2, x1:x2]
+            if cropped.size == 0:
+                continue
+
+            cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
+            pose_results = self.pose.process(cropped_rgb)
+
+            if pose_results.pose_landmarks:
+                center_x, center_y = self._calculate_body_center(pose_results.pose_landmarks.landmark)
+                unit_length = self._calculate_unit_length(pose_results.pose_landmarks.landmark)
+                keypoints = self._normalize_keypoints(pose_results.pose_landmarks.landmark, center_x, center_y, unit_length)
+
+                if keypoints:
+                    pose_data.append(PoseResult(
+                        image_path=str(image_path),
+                        bbox=[x1, y1, x2, y2],
+                        keypoints=keypoints,
+                        center_x=center_x,
+                        center_y=center_y,
+                        unit_length=unit_length
+                    ))
+        return pose_data
+
+    def process_image(self, image_path):
+        image_path = Path(image_path)
+        image = cv2.imread(str(image_path))
+        if image is None:
+            raise FileNotFoundError(f"Cannot load image: {image_path}")
+
+        detection_results = self.yolo(image)
         keypoints_data = []
 
-        for result in results:
-            boxes = result.boxes.xyxy.cpu().numpy()
-            for box in boxes:
-                x1, y1, x2, y2 = map(int, box)
-                cropped = image[y1:y2, x1:x2]
-                if cropped.size == 0:
-                    continue
-                cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
-                pose_results = self.pose.process(cropped_rgb)
+        for detection in detection_results:
+            keypoints_data.extend(self._extract_pose_data(detection, image, image_path))
 
-                if pose_results.pose_landmarks:
-                    center_x, center_y = self._calculate_body_center(pose_results.pose_landmarks.landmark)
-                    unit_length = self._calculate_unit_length(pose_results.pose_landmarks.landmark)
-                    keypoints = self._normalize_keypoints(pose_results.pose_landmarks.landmark, center_x, center_y, unit_length)
+        return keypoints_data if keypoints_data else None
 
-                    if keypoints:
-                        keypoints_data.append({
-                            'image_path': image_path,
-                            'bbox': [x1, y1, x2, y2],
-                            'keypoints': keypoints,
-                            'center_x': center_x,
-                            'center_y': center_y,
-                            'unit_length': unit_length
-                        })
-        return keypoints_data
-
-    def process_class_directory(self, class_dir, output_csv):
-        os.makedirs(os.path.dirname(output_csv), exist_ok=True)
-
+    def _write_to_csv(self, output_csv, pose_results, class_name):
         with open(output_csv, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(['image_path', 'bbox', 'landmark', 'x_norm', 'y_norm', 'visibility', 'class', 'center_x', 'center_y', 'unit_length'])
 
-            class_name = os.path.basename(class_dir)
-            image_files = [f for f in os.listdir(class_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+            for result in pose_results:
+                for landmark_name, coords in result.keypoints.items():
+                    writer.writerow([
+                        result.image_path,
+                        result.bbox,
+                        landmark_name,
+                        coords['x_norm'],
+                        coords['y_norm'],
+                        coords['visibility'],
+                        class_name,
+                        result.center_x,
+                        result.center_y,
+                        result.unit_length
+                    ])
 
-            for img_file in tqdm(image_files, desc=f"Processing {class_name}"):
-                img_path = os.path.join(class_dir, img_file)
-                results = self.process_image(img_path)
+    def process_class_directory(self, class_dir, output_csv):
+        class_dir = Path(class_dir)
+        output_csv = Path(output_csv)
+        output_csv.parent.mkdir(parents=True, exist_ok=True)
 
+        class_name = class_dir.name
+        image_files = [f for f in class_dir.iterdir() if f.suffix.lower() in ('.jpg', '.jpeg', '.png')]
+
+        all_pose_results = []
+
+        for img_file in tqdm(image_files, desc=f"Processing {class_name}"):
+            try:
+                results = self.process_image(img_file)
                 if results:
-                    for result in results:
-                        for landmark_name, coords in result['keypoints'].items():
-                            writer.writerow([
-                                result['image_path'],
-                                result['bbox'],
-                                landmark_name,
-                                coords['x_norm'],
-                                coords['y_norm'],
-                                coords['visibility'],
-                                class_name,
-                                result['center_x'],
-                                result['center_y'],
-                                result['unit_length']
-                            ])
+                    all_pose_results.extend(results)
+            except Exception as e:
+                print(f"Error processing {img_file}: {e}")
+
+        if all_pose_results:
+            self._write_to_csv(output_csv, all_pose_results, class_name)
