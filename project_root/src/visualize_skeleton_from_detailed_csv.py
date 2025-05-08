@@ -5,6 +5,7 @@ import numpy as np
 from collections import defaultdict
 from tqdm import tqdm
 
+# Определяем связи между суставами для анатомически корректного скелета
 SKELETON_CONNECTIONS = [
     ('LEFT_SHOULDER', 'RIGHT_SHOULDER'),
     ('LEFT_SHOULDER', 'LEFT_ELBOW'),
@@ -22,26 +23,56 @@ SKELETON_CONNECTIONS = [
 
 TORSO_POINTS = ['LEFT_SHOULDER', 'RIGHT_SHOULDER', 'RIGHT_HIP', 'LEFT_HIP']
 
-def denormalize_keypoints(keypoints_norm, center_x, center_y, unit_length, image_shape):
+def denormalize_keypoints(keypoints_norm, center_x, center_y, unit_length, image_shape, bbox):
+    """
+    Де-нормализация ключевых точек с учетом bounding box и анатомических пропорций.
+    """
     height, width = image_shape[:2]
     keypoints_scaled = {}
+    
+    # Извлекаем координаты bounding box
+    x1, y1, x2, y2 = bbox
+    bbox_width = x2 - x1
+    bbox_height = y2 - y1
+    
     for name, kp in keypoints_norm.items():
-        x = int((center_x + kp['x_norm'] * unit_length) * width)
-        y = int((center_y + kp['y_norm'] * unit_length) * height)
-        keypoints_scaled[name] = (x, y)
+        try:
+            # Масштабируем координаты относительно bounding box
+            x = x1 + (center_x + kp['x_norm'] * unit_length) * bbox_width
+            y = y1 + (center_y + kp['y_norm'] * unit_length) * bbox_height
+            
+            # Ограничиваем координаты в пределах изображения
+            x = max(x1, min(x, x2))
+            y = max(y1, min(y, y2))
+            
+            keypoints_scaled[name] = (int(x), int(y))
+        except (KeyError, ValueError) as e:
+            print(f"Ошибка обработки ключевой точки {name}: {e}")
+            continue
     return keypoints_scaled
 
-def draw_skeleton(image, keypoints, draw_torso=True):
+def draw_skeleton(image, keypoints, bbox, draw_torso=True, alpha=0.6):
+    """
+    Отрисовка скелета с акцентом на анатомическую точность.
+    """
+    overlay = image.copy()
+    
+    # Рисуем линии скелета (тонкие, чтобы выглядели как "сканирование")
     for start, end in SKELETON_CONNECTIONS:
         if start in keypoints and end in keypoints:
-            cv2.line(image, keypoints[start], keypoints[end], (0, 255, 0), 2)
+            cv2.line(overlay, keypoints[start], keypoints[end], (0, 255, 255), 1)  # Желтые линии, толщина 1
 
+    # Рисуем ключевые точки (суставы) четко и ярко
     for name, (x, y) in keypoints.items():
-        cv2.circle(image, (x, y), 4, (0, 0, 255), -1)
+        cv2.circle(overlay, (x, y), 3, (0, 0, 255), -1)  # Красные точки, радиус 3
 
+    # Рисуем торс как тонкий контур
     if draw_torso and all(pt in keypoints for pt in TORSO_POINTS):
         pts = np.array([keypoints[pt] for pt in TORSO_POINTS], np.int32)
-        cv2.fillPoly(image, [pts], (255, 200, 200))
+        cv2.polylines(overlay, [pts], isClosed=True, color=(255, 255, 0), thickness=1)
+
+    # Накладываем оверлей с полупрозрачностью
+    cv2.addWeighted(overlay, alpha, image, 1 - alpha, 0, image)
 
 def visualize(
     csv_path=None, 
@@ -57,9 +88,7 @@ def visualize(
             ret, frame = cap.read()
             if not ret:
                 break
-                
-            # Здесь должна быть логика обработки live-видео
-            cv2.imshow('Live Pose Visualization', frame)
+            cv2.imshow('Визуализация позы в реальном времени', frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
         cap.release()
@@ -69,58 +98,73 @@ def visualize(
     data = defaultdict(list)
     meta = {}
 
-    with open(csv_path, 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            img_path = row['image_path']
-            if float(row['visibility']) >= min_visibility:
-                data[img_path].append({
-                    'landmark': row['landmark'],
-                    'x_norm': float(row['x_norm']),
-                    'y_norm': float(row['y_norm'])
-                })
-                meta[img_path] = {
-                    'center_x': float(row['center_x']),
-                    'center_y': float(row['center_y']),
-                    'unit_length': float(row['unit_length'])
-                }
+    # Читаем CSV файл с аннотациями
+    try:
+        with open(csv_path, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                img_path = row['image_path']
+                if float(row['visibility']) >= min_visibility:
+                    data[img_path].append({
+                        'landmark': row['landmark'],
+                        'x_norm': float(row['x_norm']),
+                        'y_norm': float(row['y_norm'])
+                    })
+                    # Извлекаем метаданные, включая bounding box
+                    meta[img_path] = {
+                        'center_x': float(row['center_x']),
+                        'center_y': float(row['center_y']),
+                        'unit_length': float(row['unit_length']),
+                        'bbox': eval(row['bbox'])  # Предполагаем, что bbox сохранен как список
+                    }
+    except FileNotFoundError:
+        print(f"CSV файл не найден: {csv_path}")
+        return
+    except Exception as e:
+        print(f"Ошибка чтения CSV: {e}")
+        return
 
-    img_paths = list(data.keys())
+    img_paths = sorted(list(data.keys()))
     if sample_size is not None and sample_size > 0:
         img_paths = img_paths[:sample_size]
 
-    for img_path in tqdm(img_paths, desc="Visualizing skeletons"):
+    for img_path in tqdm(img_paths, desc="Визуализация скелетов"):
         if not os.path.exists(img_path):
-            print(f"Image {img_path} not found, skipping.")
+            print(f"Изображение {img_path} не найдено, пропускаем.")
             continue
 
         image = cv2.imread(img_path)
         if image is None:
-            print(f"Failed to read image {img_path}, skipping.")
+            print(f"Не удалось прочитать изображение {img_path}, пропускаем.")
             continue
 
         if clean_canvas:
             image = np.ones_like(image) * 255
 
+        # Формируем словарь ключевых точек
         keypoints_norm = {kp['landmark']: {'x_norm': kp['x_norm'], 'y_norm': kp['y_norm']} 
                          for kp in data[img_path]}
         meta_info = meta[img_path]
+        
+        # Де-нормализация с учетом bounding box
         keypoints_scaled = denormalize_keypoints(
             keypoints_norm, 
             meta_info['center_x'], 
             meta_info['center_y'], 
             meta_info['unit_length'], 
-            image.shape
+            image.shape,
+            meta_info['bbox']
         )
 
-        draw_skeleton(image, keypoints_scaled)
+        # Отрисовка скелета
+        draw_skeleton(image, keypoints_scaled, meta_info['bbox'])
 
         if output_dir:
             os.makedirs(output_dir, exist_ok=True)
             output_img_path = os.path.join(output_dir, os.path.basename(img_path))
             cv2.imwrite(output_img_path, image)
         else:
-            cv2.imshow('Skeleton Visualization', image)
+            cv2.imshow('Визуализация скелета', image)
             cv2.waitKey(0)
             cv2.destroyAllWindows()
 

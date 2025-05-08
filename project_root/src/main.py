@@ -24,7 +24,7 @@ def get_project_root() -> Path:
 
 def validate_dataset_structure(dataset_path: Path, required_classes: Optional[List[str]] = None) -> bool:
     if not dataset_path.exists():
-        logger.error(f"Dataset directory not found: {dataset_path}")
+        logger.error(f"Директория датасета не найдена: {dataset_path}")
         return False
 
     if required_classes is None:
@@ -34,14 +34,19 @@ def validate_dataset_structure(dataset_path: Path, required_classes: Optional[Li
     missing_classes = set(required_classes) - present_classes
     
     if missing_classes:
-        logger.error(f"Missing required classes: {missing_classes}")
-        return False
-
-    for class_name in required_classes:
+        logger.warning(f"Отсутствуют классы: {missing_classes}. Продолжаем с доступными классами.")
+    
+    has_images = False
+    for class_name in present_classes:
         class_dir = dataset_path / class_name
-        if not any(file.suffix.lower() in ['.jpg', '.jpeg', '.png'] for file in class_dir.iterdir()):
-            logger.error(f"No images found in class directory: {class_dir}")
-            return False
+        if any(file.suffix.lower() in ['.jpg', '.jpeg', '.png'] for file in class_dir.glob('**/*')):
+            has_images = True
+        else:
+            logger.warning(f"Изображения не найдены в директории класса: {class_dir}")
+    
+    if not has_images:
+        logger.error("Изображения не найдены ни в одной директории класса")
+        return False
 
     return True
 
@@ -54,7 +59,7 @@ def process_dataset(
     dataset_root = dataset_root or project_root / 'data' / 'dataset'
 
     if not validate_dataset_structure(dataset_root, required_classes):
-        raise ValueError("Invalid dataset structure")
+        raise ValueError("Некорректная структура датасета")
 
     output_dir = project_root / 'data' / 'annotations'
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -72,17 +77,20 @@ def process_dataset(
 
         output_csv = output_dir / f'{class_name}_annotations.csv'
 
-        logger.info(f"Processing {class_name} images...")
+        logger.info(f"Обработка изображений класса {class_name}...")
         try:
             processor.process_class_directory(str(class_dir), str(output_csv))
-            csv_paths.append((class_name, str(output_csv)))
-            logger.info(f"Saved annotations to {output_csv}")
+            if output_csv.exists():
+                csv_paths.append((class_name, str(output_csv)))
+                logger.info(f"Аннотации сохранены в {output_csv}")
+            else:
+                logger.warning(f"Аннотации для {class_name} не созданы")
         except Exception as e:
-            logger.error(f"Failed to process {class_name}: {str(e)}")
-            raise
+            logger.error(f"Ошибка обработки {class_name}: {str(e)}")
+            continue
 
     if not csv_paths:
-        raise RuntimeError("No CSV files were created")
+        raise RuntimeError("CSV файлы не были созданы")
 
     return csv_paths
 
@@ -96,7 +104,7 @@ def visualize_annotations(
     vis_output_dir = project_root / 'data' / 'visualizations'
 
     if live:
-        logger.info("Starting live visualization from webcam...")
+        logger.info("Запуск визуализации в реальном времени с веб-камеры...")
         visualize_skeleton(live=True)
         return
 
@@ -104,7 +112,7 @@ def visualize_annotations(
         output_dir = vis_output_dir / class_name
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        logger.info(f"Visualizing {class_name} skeletons... (clean={clean_canvas}, samples={sample_size})")
+        logger.info(f"Визуализация скелетов для {class_name}... (чистый фон={clean_canvas}, выборка={sample_size})")
         try:
             visualize_skeleton(
                 csv_path=csv_path,
@@ -112,10 +120,10 @@ def visualize_annotations(
                 clean_canvas=clean_canvas,
                 sample_size=sample_size
             )
-            logger.info(f"Visualizations saved to {output_dir}")
+            logger.info(f"Визуализации сохранены в {output_dir}")
         except Exception as e:
-            logger.error(f"Failed to visualize {class_name}: {str(e)}")
-            raise
+            logger.error(f"Ошибка визуализации {class_name}: {str(e)}")
+            continue
 
 def train_model(
     csv_paths: List[Tuple[str, str]],
@@ -130,7 +138,7 @@ def train_model(
 
     if model_type == 'cnn':
         model_save_path = models_dir / 'pose_classifier.pth'
-        logger.info(f"Training {model_type} model for {epochs} epochs (batch_size={batch_size}, lr={learning_rate})...")
+        logger.info(f"Обучение модели {model_type} на {epochs} эпох (размер батча={batch_size}, lr={learning_rate})...")
         train_cnn_classifier(
             csv_paths=[path for _, path in csv_paths],
             model_save_path=str(model_save_path),
@@ -139,36 +147,36 @@ def train_model(
             learning_rate=learning_rate
         )
     else:
-        raise ValueError(f"Unsupported model type: {model_type}")
+        raise ValueError(f"Неподдерживаемый тип модели: {model_type}")
 
-    logger.info(f"Model saved to {model_save_path}")
+    logger.info(f"Модель сохранена в {model_save_path}")
     return str(model_save_path)
 
 def main():
-    parser = argparse.ArgumentParser(description='Human Pose Estimation Pipeline')
-    parser.add_argument('--dataset', type=str, default=None, help='Path to dataset directory')
+    parser = argparse.ArgumentParser(description='Пайплайн оценки человеческой позы')
+    parser.add_argument('--dataset', type=str, default=None, help='Путь к директории датасета')
     parser.add_argument('--classes', nargs='+', default=['standing', 'sitting', 'lying'], 
-                       help='List of class names to process')
+                       help='Список имен классов для обработки')
     parser.add_argument('--yolo_model', type=str, default='yolov8n-pose.pt', 
-                       help='YOLO model filename in models/ directory')
+                       help='Имя файла модели YOLO в директории models/')
     
-    parser.add_argument('--process', action='store_true', help='Process dataset and generate annotations')
-    parser.add_argument('--visualize', action='store_true', help='Visualize skeletons from annotations')
-    parser.add_argument('--train', action='store_true', help='Train model after processing')
+    parser.add_argument('--process', action='store_true', help='Обработать датасет и создать аннотации')
+    parser.add_argument('--visualize', action='store_true', help='Визуализировать скелеты из аннотаций')
+    parser.add_argument('--train', action='store_true', help='Обучить модель после обработки')
     
-    parser.add_argument('--clean_visuals', action='store_true', help='Draw on white background')
-    parser.add_argument('--live', action='store_true', help='Use webcam for live visualization')
+    parser.add_argument('--clean_visuals', action='store_true', help='Рисовать на белом фоне')
+    parser.add_argument('--live', action='store_true', help='Использовать веб-камеру для визуализации в реальном времени')
     parser.add_argument('--sample_size', type=int, default=10, 
-                       help='Number of samples to visualize per class (0 for all)')
+                       help='Количество образцов для визуализации на класс (0 для всех)')
     
-    parser.add_argument('--epochs', type=int, default=30, help='Number of training epochs')
-    parser.add_argument('--batch_size', type=int, default=32, help='Training batch size')
-    parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate')
+    parser.add_argument('--epochs', type=int, default=30, help='Количество эпох обучения')
+    parser.add_argument('--batch_size', type=int, default=32, help='Размер батча для обучения')
+    parser.add_argument('--learning_rate', type=float, default=0.001, help='Скорость обучения')
     parser.add_argument('--model_type', choices=['cnn'], default='cnn', 
-                       help='Type of model to train')
+                       help='Тип модели для обучения')
     
     parser.add_argument('--log_level', default='INFO', 
-                       choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], help='Logging level')
+                       choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], help='Уровень логирования')
     
     args = parser.parse_args()
     logger.setLevel(args.log_level)
@@ -199,13 +207,13 @@ def main():
                 batch_size=args.batch_size,
                 learning_rate=args.learning_rate
             )
-            logger.info(f"Training completed. Model saved to {model_path}")
+            logger.info(f"Обучение завершено. Модель сохранена в {model_path}")
 
-        logger.info("Pipeline completed successfully")
+        logger.info("Пайплайн успешно завершен")
         sys.exit(0)
         
     except Exception as e:
-        logger.error(f"Pipeline failed: {str(e)}", exc_info=True)
+        logger.error(f"Сбой пайплайна: {str(e)}", exc_info=True)
         sys.exit(1)
 
 if __name__ == "__main__":

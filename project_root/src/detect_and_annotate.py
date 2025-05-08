@@ -49,8 +49,11 @@ class PoseProcessor:
             self.mp_pose.PoseLandmark.LEFT_HIP,
             self.mp_pose.PoseLandmark.RIGHT_HIP
         ]
-        x_coords = [landmarks[kp.value].x for kp in key_points]
-        y_coords = [landmarks[kp.value].y for kp in key_points]
+        valid_points = [landmarks[kp.value] for kp in key_points if landmarks[kp.value].visibility > 0.5]
+        if not valid_points:
+            return None, None
+        x_coords = [pt.x for pt in valid_points]
+        y_coords = [pt.y for pt in valid_points]
         return np.mean(x_coords), np.mean(y_coords)
 
     def _calculate_unit_length(self, landmarks):
@@ -59,11 +62,17 @@ class PoseProcessor:
         rs = landmarks[self.mp_pose.PoseLandmark.RIGHT_SHOULDER.value]
         lb = landmarks[self.mp_pose.PoseLandmark.LEFT_HIP.value]
 
+        if ls.visibility < 0.5 or rb.visibility < 0.5 or rs.visibility < 0.5 or lb.visibility < 0.5:
+            return 0.1  # Резервная единица длины
+
         diag1 = np.hypot(ls.x - rb.x, ls.y - rb.y)
         diag2 = np.hypot(rs.x - lb.x, rs.y - lb.y)
         return max((diag1 + diag2) / 2, 0.01)
 
     def _normalize_keypoints(self, landmarks, center_x, center_y, unit_length):
+        if center_x is None or center_y is None:
+            return None
+
         normalized = {}
         for name in self.landmark_names:
             idx = getattr(self.mp_pose.PoseLandmark, name).value
@@ -89,6 +98,8 @@ class PoseProcessor:
 
         for box in boxes:
             x1, y1, x2, y2 = map(int, box)
+            if x2 <= x1 or y2 <= y1:
+                continue
             cropped = image[y1:y2, x1:x2]
             if cropped.size == 0:
                 continue
@@ -116,7 +127,8 @@ class PoseProcessor:
         image_path = Path(image_path)
         image = cv2.imread(str(image_path))
         if image is None:
-            raise FileNotFoundError(f"Cannot load image: {image_path}")
+            print(f"Не удалось загрузить изображение: {image_path}")
+            return None
 
         detection_results = self.yolo(image)
         keypoints_data = []
@@ -152,17 +164,18 @@ class PoseProcessor:
         output_csv.parent.mkdir(parents=True, exist_ok=True)
 
         class_name = class_dir.name
-        image_files = [f for f in class_dir.iterdir() if f.suffix.lower() in ('.jpg', '.jpeg', '.png')]
+        image_files = list(class_dir.glob('**/*.jpg')) + list(class_dir.glob('**/*.jpeg')) + list(class_dir.glob('**/*.png'))
 
         all_pose_results = []
 
-        for img_file in tqdm(image_files, desc=f"Processing {class_name}"):
+        for img_file in tqdm(image_files, desc=f"Обработка {class_name}"):
             try:
                 results = self.process_image(img_file)
                 if results:
                     all_pose_results.extend(results)
             except Exception as e:
-                print(f"Error processing {img_file}: {e}")
+                print(f"Ошибка обработки {img_file}: {e}")
+                continue
 
         if all_pose_results:
             self._write_to_csv(output_csv, all_pose_results, class_name)
